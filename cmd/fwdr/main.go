@@ -26,7 +26,6 @@ func init() {
 	chatID = i
 }
 
-// TODO: keep online appearance
 func main() {
 	s, _ := discordgo.New(self)
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
@@ -58,7 +57,6 @@ func main() {
 	defer ticker.Stop()
 	go func() {
 		for range ticker.C {
-			log.Println("Settings Status to idle!")
 			s.UpdateStatusComplex(discordgo.UpdateStatusData{Status: "online"})
 		}
 	}()
