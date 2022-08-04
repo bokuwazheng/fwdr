@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -52,14 +51,6 @@ func main() {
 		log.Fatalf("Cannot open the session: %v", err)
 	}
 	defer s.Close()
-
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	go func() {
-		for range ticker.C {
-			s.UpdateStatusComplex(discordgo.UpdateStatusData{Status: "online"})
-		}
-	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
