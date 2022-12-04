@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -26,53 +27,74 @@ func init() {
 	chatID = i
 }
 
+type Message struct {
+	UserName, Content string
+}
+
 func main() {
 	s, _ := discordgo.New(self)
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Printf("Discord selfbot (%s) is ready", r.User.Username)
+		log.Printf("( >'-')> Discord selfbot (%s) is ready <('-'< )", r.User.Username)
 	})
-
-	bot := bot(botToken)
-	s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		c, err := s.State.Channel(m.ChannelID)
-		if err != nil {
-			log.Fatalf("Cannot open the session: %v", err)
-		}
-		if c.Type != discordgo.ChannelTypeDM && c.Type != discordgo.ChannelTypeGroupDM {
-			return
-		} else if m.Author.ID == s.State.User.ID {
-			return
-		}
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("New Discord message from %s: %s", m.Author, m.Content))
-		bot.Send(msg)
-	})
-
-	err := s.Open()
-	if err != nil {
-		log.Fatalf("Cannot open the session: %v", err)
+	if err := s.Open(); err != nil {
+		log.Fatal(err)
 	}
 	defer s.Close()
 
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
+	bot, err := tgbotapi.NewBotAPI(botToken)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Telegram bot authorized on account: %s", bot.Self.UserName)
+
+	health := time.NewTicker(time.Hour)
+	defer health.Stop()
 	go func() {
-		for range ticker.C {
-			s.UpdateStatusComplex(discordgo.UpdateStatusData{Status: "online"})
+		for range health.C {
+			forward(Message{"fwdr", "Just letting you know I'm OK!"}, bot)
 		}
 	}()
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
-	<-stop
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	select {
+	case <-stop:
+	default:
+		for dm := range dms(s, stop) {
+			forward(dm, bot)
+		}
+	}
+	forward(Message{"fwdr", "Shutting down..."}, bot)
 	log.Println("Graceful shutdown")
 }
 
-func bot(token string) *tgbotapi.BotAPI {
-	bot, err := tgbotapi.NewBotAPI(token)
-	if err != nil {
-		log.Fatal(err)
-	}
+func dms(s *discordgo.Session, stop chan os.Signal) <-chan Message {
+	out := make(chan Message)
+	go func() {
+		<-stop
+		close(out)
+	}()
+	go func() {
+		s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+			c, err := s.State.Channel(m.ChannelID)
+			if err != nil {
+				log.Fatalf("Cannot open the session: %v", err)
+			}
+			if c.Type != discordgo.ChannelTypeDM && c.Type != discordgo.ChannelTypeGroupDM {
+				return
+			} else if m.Author.ID == s.State.User.ID {
+				return
+			}
+			select {
+			case out <- Message{m.Author.Username, m.Content}:
+			default:
+			}
+		})
+	}()
+	return out
+}
 
-	log.Printf("Telegram bot authorized on account %s", bot.Self.UserName)
-	return bot
+func forward(dm Message, bot *tgbotapi.BotAPI) {
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Message from %s: %s", dm.UserName, dm.Content))
+	bot.Send(msg)
 }
