@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/jasonlvhit/gocron"
 )
 
 var (
@@ -28,7 +28,7 @@ func init() {
 }
 
 type Message struct {
-	UserName, Content string
+	Username, Content string
 }
 
 func main() {
@@ -47,13 +47,7 @@ func main() {
 	}
 	log.Printf("Telegram bot authorized on account: %s", bot.Self.UserName)
 
-	health := time.NewTicker(time.Hour)
-	defer health.Stop()
-	go func() {
-		for range health.C {
-			forward(Message{"fwdr", "Just letting you know I'm OK!"}, bot)
-		}
-	}()
+	go health(bot)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
@@ -71,30 +65,43 @@ func main() {
 func dms(s *discordgo.Session, stop chan os.Signal) <-chan Message {
 	out := make(chan Message)
 	go func() {
-		<-stop
-		close(out)
-	}()
-	go func() {
-		s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-			c, err := s.State.Channel(m.ChannelID)
-			if err != nil {
-				log.Fatalf("Cannot open the session: %v", err)
-			}
-			if c.Type != discordgo.ChannelTypeDM && c.Type != discordgo.ChannelTypeGroupDM {
-				return
-			} else if m.Author.ID == s.State.User.ID {
-				return
-			}
-			select {
-			case out <- Message{m.Author.Username, m.Content}:
-			default:
-			}
-		})
+		removeEventHandler := s.AddHandler(handleMessageCreate(out))
+		go func() {
+			<-stop
+			removeEventHandler()
+			close(out)
+		}()
 	}()
 	return out
 }
 
+func handleMessageCreate(out chan Message) func(s *discordgo.Session, m *discordgo.MessageCreate) {
+	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		c, err := s.State.Channel(m.ChannelID)
+		if err != nil {
+			log.Fatalf("Cannot open the session: %v", err)
+		}
+		if c.Type != discordgo.ChannelTypeDM && c.Type != discordgo.ChannelTypeGroupDM {
+			return
+		} else if m.Author.ID == s.State.User.ID {
+			return
+		}
+		select {
+		case out <- Message{m.Author.Username, m.Content}:
+		default:
+		}
+	}
+}
+
 func forward(dm Message, bot *tgbotapi.BotAPI) {
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Message from %s: %s", dm.UserName, dm.Content))
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Message from %s: %s", dm.Username, dm.Content))
 	bot.Send(msg)
+}
+
+func health(bot *tgbotapi.BotAPI) {
+	task := func() {
+		forward(Message{"fwdr", "Just letting you know I'm OK!"}, bot)
+	}
+	gocron.Every(1).Day().At("07:00").Do(task) // 07:00 UTC, i.e. 10:00 MSK
+	<-gocron.Start()
 }

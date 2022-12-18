@@ -2,7 +2,10 @@ module github.com/bokuwazheng/fwdr
 
 go 1.18
 
-require github.com/bwmarrin/discordgo v0.25.0
+require (
+	github.com/bwmarrin/discordgo v0.25.0
+	github.com/jasonlvhit/gocron v0.0.1
+)
 
 require github.com/technoweenie/multipartstreamer v1.0.1 // indirect
 
